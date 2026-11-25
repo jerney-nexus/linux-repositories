@@ -16,6 +16,13 @@ subdomain, signing key, or R2 credentials.
    mirrors the current repositories from R2, adds the new packages, signs the
    metadata with the shared GPG key, and uploads the result back to R2.
 
+Each downloaded package is verified against the SHA-256 digest GitHub recorded
+for that release asset (`gh release view --json assets`). A missing digest or a
+mismatch fails the run before anything is signed or uploaded. This check works
+for every existing release, including older ones, because it needs no change in
+the source repository. It proves the bytes are the ones GitHub stored for the
+release; it does not prove which workflow built them.
+
 Packages are stored under their metadata names, such as
 `epikrise_<version>_<arch>.deb` and `epikrise-<version>-1.<arch>.rpm`, not the
 build-target names of the release assets.

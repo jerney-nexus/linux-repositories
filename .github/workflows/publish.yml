@@ -47,8 +47,9 @@ jobs:
 
       - name: Install rclone
         # Ubuntu's rclone 1.60 gets HTTP 501 from R2 on uploads; pin a current release.
+        # Not named RCLONE_VERSION: rclone reads RCLONE_* variables as flags.
         env:
-          RCLONE_VERSION: v1.76.0
+          PINNED_RCLONE_VERSION: v1.76.0
         run: |
           set -euo pipefail
           case "$(dpkg --print-architecture)" in
@@ -59,14 +60,14 @@ jobs:
           deb="$RUNNER_TEMP/rclone.deb"
           arch="$(dpkg --print-architecture)"
           curl -fsSL -o "$deb" \
-            "https://downloads.rclone.org/$RCLONE_VERSION/rclone-$RCLONE_VERSION-linux-$arch.deb"
+            "https://downloads.rclone.org/$PINNED_RCLONE_VERSION/rclone-$PINNED_RCLONE_VERSION-linux-$arch.deb"
           echo "$deb_sha256  $deb" | sha256sum --check --strict
           sudo apt-get install -y "$deb"
           rclone version
 
       - name: Create source read token
         id: source_token
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ vars.LINUX_REPOSITORY_APP_ID }}
           private-key: ${{ secrets.LINUX_REPOSITORY_APP_PRIVATE_KEY }}
@@ -99,6 +100,32 @@ jobs:
               --dir "$source_dir" \
               --pattern '*.deb' \
               --pattern '*.rpm'
+            # GitHub records a SHA-256 digest for every release asset when it is uploaded.
+            # Each downloaded package must match that digest before it is published.
+            digest_list="$RUNNER_TEMP/digests-${repo//\//_}.tsv"
+            gh release view "$tag" --repo "$repo" --json assets \
+              --jq '.assets[] | [.name, .digest] | @tsv' >"$digest_list"
+            package_count=0
+            for package in "$source_dir"/*.deb "$source_dir"/*.rpm; do
+              [[ -e "$package" ]] || continue
+              name="$(basename "$package")"
+              expected="$(awk -F'\t' -v n="$name" '$1 == n { print $2 }' "$digest_list")"
+              if [[ ! "$expected" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+                echo "No SHA-256 digest recorded for $repo@$tag asset: $name" >&2
+                exit 1
+              fi
+              actual="sha256:$(sha256sum "$package" | cut -d' ' -f1)"
+              if [[ "$actual" != "$expected" ]]; then
+                echo "Digest mismatch for $repo@$tag asset: $name" >&2
+                exit 1
+              fi
+              package_count=$((package_count + 1))
+            done
+            if ((package_count == 0)); then
+              echo "No .deb or .rpm assets found for $repo@$tag" >&2
+              exit 1
+            fi
+            echo "Verified $package_count package digest(s) for $repo@$tag"
             source_count=$((source_count + 1))
           done <<<"$SOURCES_INPUT"
           if ((source_count == 0)); then
