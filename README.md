@@ -46,7 +46,7 @@ Environment `linux-repository`:
 | `LINUX_REPOSITORY_R2_ENDPOINT` | secret | R2 S3 endpoint for the account |
 | `LINUX_REPOSITORY_R2_ACCESS_KEY_ID` | secret | R2 access key with object read/write on the bucket |
 | `LINUX_REPOSITORY_R2_SECRET_ACCESS_KEY` | secret | Secret of that R2 access key |
-| `LINUX_REPOSITORY_R2_BUCKET` | variable | Bucket name, `epikrise-linux-repositories` |
+| `LINUX_REPOSITORY_R2_BUCKET` | variable | Bucket name, `linux-repositories` |
 
 Configure required reviewers on the `linux-repository` environment so that a
 publish waits for approval.
