@@ -16,6 +16,10 @@ subdomain, signing key, or R2 credentials.
    mirrors the current repositories from R2, adds the new packages, signs the
    metadata with the shared GPG key, and uploads the result back to R2.
 
+Packages are stored under their metadata names, such as
+`epikrise_<version>_<arch>.deb` and `epikrise-<version>-1.<arch>.rpm`, not the
+build-target names of the release assets.
+
 Dispatches are only accepted from the default branch, so `publish.yml` must
 stay on `main`. Publish runs share the `linux-repository` concurrency group and
 are never cancelled mid-upload.

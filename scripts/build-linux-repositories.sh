@@ -88,15 +88,17 @@ add_package() {
         echo "Unsupported Debian architecture in $name: $arch" >&2
         exit 1
       }
-      local package_name pool_dir
+      local package_name pool_dir version target
       package_name="$(dpkg-deb -f "$package" Package)"
       if [[ ! "$package_name" =~ ^[a-z0-9][a-z0-9+.-]*$ ]]; then
         echo "Invalid Debian package name in $name: $package_name" >&2
         exit 1
       fi
+      version="$(dpkg-deb -f "$package" Version)"
       pool_dir="$(pool_dir_for "$package_name")"
+      target="${package_name}_${version}_${arch}.deb"
       mkdir -p "$pool_dir"
-      cp -f "$package" "$pool_dir/$name"
+      cp -f "$package" "$pool_dir/$target"
       ;;
     *.rpm)
       arch="$(rpm -qp --qf '%{ARCH}' "$package")"
@@ -107,12 +109,14 @@ add_package() {
           exit 1
           ;;
       esac
+      local target
+      target="$(rpm -qp --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}.rpm' "$package")"
       mkdir -p "$dnf_root/$arch"
-      cp -f "$package" "$dnf_root/$arch/$name"
+      cp -f "$package" "$dnf_root/$arch/$target"
       # Signing runs on the copy so the caller's artifact is left untouched.
       rpm --addsign \
         --define "_gpg_name $LINUX_REPOSITORY_GPG_KEY_ID" \
-        "$dnf_root/$arch/$name"
+        "$dnf_root/$arch/$target"
       ;;
     *)
       echo "Not a .deb or .rpm package: $package" >&2

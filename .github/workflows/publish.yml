@@ -43,7 +43,26 @@ jobs:
       - name: Install repository tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y apt-utils createrepo-c rclone rpm
+          sudo apt-get install -y apt-utils createrepo-c rpm
+
+      - name: Install rclone
+        # Ubuntu's rclone 1.60 gets HTTP 501 from R2 on uploads; pin a current release.
+        env:
+          RCLONE_VERSION: v1.76.0
+        run: |
+          set -euo pipefail
+          case "$(dpkg --print-architecture)" in
+            amd64) deb_sha256=9db7ee9b725bce7cdd195b9183449a4c6fb93cad3e6578e70b87c0bc7f6062e9 ;;
+            arm64) deb_sha256=c486d404ecbc4bb3d54052a0efaf9e652cf0d2c645e4523f7a2aefa112fe029c ;;
+            *) echo "Unsupported architecture" >&2; exit 1 ;;
+          esac
+          deb="$RUNNER_TEMP/rclone.deb"
+          arch="$(dpkg --print-architecture)"
+          curl -fsSL -o "$deb" \
+            "https://downloads.rclone.org/$RCLONE_VERSION/rclone-$RCLONE_VERSION-linux-$arch.deb"
+          echo "$deb_sha256  $deb" | sha256sum --check --strict
+          sudo apt-get install -y "$deb"
+          rclone version
 
       - name: Create source read token
         id: source_token
