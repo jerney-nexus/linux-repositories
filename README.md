@@ -46,6 +46,18 @@ Packages from different applications share one signing key and one repository.
 Two applications that publish the same package name and version overwrite each
 other, so give each application distinct package names.
 
+## Manual runs and older releases
+
+Run the **Publish Linux package repositories** workflow from the Actions tab with
+**Run workflow**. Enter one `owner/repo@tag` per line in `sources`. Every source
+must be on `allowed-sources.txt`, and the run waits for approval in the
+`linux-repository` environment, as dispatched runs do.
+
+Older releases can be published at any time, including after a newer release. The
+publisher adds the packages from the given tag to the existing repositories and
+does not remove other versions. The apt and dnf indexes then list every version
+present. Publishing the same name and version again replaces that package.
+
 ## Configuration
 
 Environment `linux-repository`:
