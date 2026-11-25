@@ -50,7 +50,7 @@ Environment `linux-repository`:
 
 | Name | Kind | Purpose |
 | --- | --- | --- |
-| `LINUX_REPOSITORY_APP_ID` | variable | ID of the GitHub App used to read source releases |
+| `LINUX_REPOSITORY_APP_CLIENT_ID` | variable | Client ID (`Iv…`) of the GitHub App used to read source releases |
 | `LINUX_REPOSITORY_APP_PRIVATE_KEY` | secret | Private key of that App, used to mint read tokens for source releases |
 | `LINUX_REPOSITORY_GPG_PRIVATE_KEY` | secret | Passphrase-less signing key, ASCII-armored |
 | `LINUX_REPOSITORY_GPG_KEY_ID` | variable | Fingerprint of the signing key |
