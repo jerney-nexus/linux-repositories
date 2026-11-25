@@ -155,9 +155,19 @@ jobs:
             echo "No .deb or .rpm packages were downloaded" >&2
             exit 1
           fi
+          : > "$RUNNER_TEMP/stale-repodata.txt"
           bash scripts/build-linux-repositories.sh \
             --repo-root "$RUNNER_TEMP/repo" \
+            --prune-list "$RUNNER_TEMP/stale-repodata.txt" \
             "${packages[@]}"
 
       - name: Upload repositories
         run: rclone copy "$RUNNER_TEMP/repo" "r2:$R2_BUCKET" --checksum
+
+      - name: Remove superseded repodata
+        run: |
+          if [[ -s "$RUNNER_TEMP/stale-repodata.txt" ]]; then
+            rclone delete "r2:$R2_BUCKET" --files-from-raw "$RUNNER_TEMP/stale-repodata.txt"
+          else
+            echo "No superseded repodata to remove"
+          fi

@@ -14,7 +14,9 @@ subdomain, signing key, or R2 credentials.
    [allowed-sources.txt](allowed-sources.txt). Unlisted sources are rejected.
 3. The workflow downloads the `*.deb` and `*.rpm` assets of that release,
    mirrors the current repositories from R2, adds the new packages, signs the
-   metadata with the shared GPG key, and uploads the result back to R2.
+   metadata with the shared GPG key, uploads the result back to R2, and then
+   deletes the dnf `repodata/` files that the new `repomd.xml` no longer
+   references. Packages and live metadata are never deleted.
 
 Each downloaded package is verified against the SHA-256 digest GitHub recorded
 for that release asset (`gh release view --json assets`). A missing digest or a

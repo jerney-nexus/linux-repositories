@@ -6,22 +6,32 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-Usage: LINUX_REPOSITORY_GPG_KEY_ID=<key-id> build-linux-repositories.sh --repo-root <dir> <package>...
+Usage: LINUX_REPOSITORY_GPG_KEY_ID=<key-id> build-linux-repositories.sh --repo-root <dir> [--prune-list <file>] <package>...
 
 Adds each .deb or .rpm package to <dir>/apt and <dir>/rpm, regenerates the
 repository metadata, and signs it with the GPG key named by LINUX_REPOSITORY_GPG_KEY_ID.
 Packages from any application can be added; apt pool directories follow each
 package's own Debian name. The key must be available in the active GNUPGHOME
 without a passphrase prompt.
+
+With --prune-list, the file receives the repo-relative paths of dnf repodata
+files from the previous metadata generation that the new repomd.xml no longer
+references. Callers delete those paths from the published copy. Packages and
+live metadata are never listed.
 USAGE
 }
 
 repo_root=""
+prune_list=""
 packages=()
 while (($#)); do
   case "$1" in
     --repo-root)
       repo_root="${2:?--repo-root requires a value}"
+      shift 2
+      ;;
+    --prune-list)
+      prune_list="${2:?--prune-list requires a value}"
       shift 2
       ;;
     -h | --help)
@@ -165,15 +175,37 @@ write_apt_release() {
 }
 
 write_dnf_metadata() {
-  local rpm_arch arch_dir
+  local rpm_arch arch_dir repodata_dir
   for rpm_arch in x86_64 aarch64; do
     arch_dir="$dnf_root/$rpm_arch"
     [[ -d "$arch_dir" ]] || continue
+    repodata_dir="$arch_dir/repodata"
+    # Snapshot before regeneration: the previous run's files are what may need pruning.
+    if [[ -d "$repodata_dir" ]]; then
+      (cd "$repodata_dir" && find . -maxdepth 1 -type f -printf '%f\n') |
+        LC_ALL=C sort >"$work_dir/previous-$rpm_arch"
+    else
+      : >"$work_dir/previous-$rpm_arch"
+    fi
     createrepo_c --quiet "$arch_dir"
+    [[ -f "$repodata_dir/repomd.xml" ]] || {
+      echo "createrepo_c did not write $repodata_dir/repomd.xml" >&2
+      exit 1
+    }
     gpg --batch --yes --local-user "$LINUX_REPOSITORY_GPG_KEY_ID" \
       --detach-sign --armor \
-      --output "$arch_dir/repodata/repomd.xml.asc" \
-      "$arch_dir/repodata/repomd.xml"
+      --output "$repodata_dir/repomd.xml.asc" \
+      "$repodata_dir/repomd.xml"
+    if [[ -n "$prune_list" ]]; then
+      # repomd.xml is the only entry point to live metadata, so its hrefs define what stays.
+      {
+        echo repomd.xml
+        echo repomd.xml.asc
+        sed -n 's|.*href="repodata/\([^"]*\)".*|\1|p' "$repodata_dir/repomd.xml"
+      } | LC_ALL=C sort -u >"$work_dir/live-$rpm_arch"
+      LC_ALL=C comm -23 "$work_dir/previous-$rpm_arch" "$work_dir/live-$rpm_arch" |
+        sed "s|^|rpm/$rpm_arch/repodata/|" >>"$prune_list"
+    fi
   done
 }
 
