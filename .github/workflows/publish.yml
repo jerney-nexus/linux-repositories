@@ -1,0 +1,117 @@
+name: Publish Linux package repositories
+
+# Only this repository holds the signing key and R2 credentials. Applications
+# send a repository_dispatch (event type publish-linux-packages) whose
+# client_payload.sources lists owner/repo@tag release sources, one per line.
+# Every source repository must appear in allowed-sources.txt.
+on:
+  repository_dispatch:
+    types: [publish-linux-packages]
+  workflow_dispatch:
+    inputs:
+      sources:
+        description: Release sources to publish, one owner/repo@tag per line
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish signed apt and dnf repositories
+    runs-on: ubuntu-24.04
+    environment:
+      name: linux-repository
+    concurrency:
+      group: linux-repository
+      cancel-in-progress: false
+    env:
+      SOURCES_INPUT: ${{ inputs.sources || github.event.client_payload.sources }}
+      RCLONE_CONFIG_R2_TYPE: s3
+      RCLONE_CONFIG_R2_PROVIDER: Cloudflare
+      RCLONE_CONFIG_R2_ACCESS_KEY_ID: ${{ secrets.LINUX_REPOSITORY_R2_ACCESS_KEY_ID }}
+      RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${{ secrets.LINUX_REPOSITORY_R2_SECRET_ACCESS_KEY }}
+      RCLONE_CONFIG_R2_ENDPOINT: ${{ secrets.LINUX_REPOSITORY_R2_ENDPOINT }}
+      R2_BUCKET: ${{ vars.LINUX_REPOSITORY_R2_BUCKET }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Install repository tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y apt-utils createrepo-c rclone rpm
+
+      - name: Create source read token
+        id: source_token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.LINUX_REPOSITORY_APP_ID }}
+          private-key: ${{ secrets.LINUX_REPOSITORY_APP_PRIVATE_KEY }}
+          owner: jerney-nexus
+
+      - name: Download release packages
+        env:
+          GH_TOKEN: ${{ steps.source_token.outputs.token }}
+        run: |
+          packages_dir="$RUNNER_TEMP/packages"
+          mkdir -p "$packages_dir"
+          source_count=0
+          while IFS= read -r source; do
+            source="${source//[[:space:]]/}"
+            [[ -n "$source" ]] || continue
+            if [[ ! "$source" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@[A-Za-z0-9._+-]+$ ]]; then
+              echo "Invalid source (expected owner/repo@tag): $source" >&2
+              exit 1
+            fi
+            repo="${source%@*}"
+            tag="${source##*@}"
+            if ! grep -Fxq "$repo" allowed-sources.txt; then
+              echo "Source repository is not in allowed-sources.txt: $repo" >&2
+              exit 1
+            fi
+            source_dir="$packages_dir/${repo//\//_}"
+            mkdir -p "$source_dir"
+            gh release download "$tag" \
+              --repo "$repo" \
+              --dir "$source_dir" \
+              --pattern '*.deb' \
+              --pattern '*.rpm'
+            source_count=$((source_count + 1))
+          done <<<"$SOURCES_INPUT"
+          if ((source_count == 0)); then
+            echo "No release sources were provided" >&2
+            exit 1
+          fi
+
+      - name: Import repository signing key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.LINUX_REPOSITORY_GPG_PRIVATE_KEY }}
+        run: printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+
+      - name: Download published repositories
+        run: |
+          repo_root="$RUNNER_TEMP/repo"
+          mkdir -p "$repo_root"
+          rclone copy "r2:$R2_BUCKET" "$repo_root"
+
+      - name: Add packages and sign repositories
+        env:
+          LINUX_REPOSITORY_GPG_KEY_ID: ${{ vars.LINUX_REPOSITORY_GPG_KEY_ID }}
+        run: |
+          mapfile -t packages < <(
+            find "$RUNNER_TEMP/packages" -type f \( -name '*.deb' -o -name '*.rpm' \) | sort
+          )
+          if ((${#packages[@]} == 0)); then
+            echo "No .deb or .rpm packages were downloaded" >&2
+            exit 1
+          fi
+          bash scripts/build-linux-repositories.sh \
+            --repo-root "$RUNNER_TEMP/repo" \
+            "${packages[@]}"
+
+      - name: Upload repositories
+        run: rclone copy "$RUNNER_TEMP/repo" "r2:$R2_BUCKET" --checksum

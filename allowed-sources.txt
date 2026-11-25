@@ -1,0 +1,4 @@
+# Repositories allowed to publish .deb and .rpm packages to packages.jerney.nexus.
+# One owner/repo per line. Add a line here (through a reviewed PR) before an
+# application can dispatch publish-linux-packages.
+jerney-nexus/epikrise
